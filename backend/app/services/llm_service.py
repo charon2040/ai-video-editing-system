@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import traceback
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
 from app.core.config import settings
@@ -36,6 +37,15 @@ class LLMService:
         return True
 
     def _clean_content(self, content: str) -> str:
+        """从 LLM 返回的内容中提取 JSON 字符串"""
+        if not content:
+            return ""
+        # 尝试使用正则匹配第一个 JSON 对象或数组
+        match = re.search(r'(\{.*\}|\[.*\])', content, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        
+        # 兜底清理 Markdown 标记
         cleaned_content = content.strip()
         if cleaned_content.startswith("```json"):
             cleaned_content = cleaned_content[7:]
@@ -45,70 +55,21 @@ class LLMService:
             cleaned_content = cleaned_content[:-3]
         return cleaned_content.strip()
 
-    def _split_script_by_segments(self, script: str, segments: List[Dict[str, Any]]) -> List[str]:
-        normalized_script = script.strip()
-        if not normalized_script or not segments:
-            return []
-
-        total_duration = sum(max(int(seg.get("end", 0)) - int(seg.get("start", 0)), 1) for seg in segments)
-        if total_duration <= 0:
-            return [normalized_script]
-
-        punctuation = "，。！？；：,.!?;、"
-        text_length = len(normalized_script)
-        chunks = []
-        cursor = 0
-        consumed_duration = 0
-        segment_count = len(segments)
-
-        for index, seg in enumerate(segments):
-            duration = max(int(seg.get("end", 0)) - int(seg.get("start", 0)), 1)
-            if index == segment_count - 1:
-                chunk = normalized_script[cursor:].strip()
-                chunks.append(chunk)
-                break
-
-            consumed_duration += duration
-            target = round(text_length * consumed_duration / total_duration)
-            min_split = cursor + 1
-            max_split = text_length - (segment_count - index - 1)
-            target = max(min_split, min(target, max_split))
-
-            split_index = target
-            best_distance = None
-            search_start = max(min_split, target - 8)
-            search_end = min(max_split, target + 8)
-            for candidate in range(search_start, search_end + 1):
-                if normalized_script[candidate - 1] in punctuation:
-                    distance = abs(candidate - target)
-                    if best_distance is None or distance < best_distance:
-                        split_index = candidate
-                        best_distance = distance
-
-            chunk = normalized_script[cursor:split_index].strip()
-            if not chunk:
-                split_index = min_split
-                chunk = normalized_script[cursor:split_index].strip()
-            chunks.append(chunk)
-            cursor = split_index
-
-        return chunks
-
-    def project_script_to_segments(self, script: str, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        chunks = self._split_script_by_segments(script, segments)
-        if not chunks:
-            return segments
-
-        updated_segments = []
-        for index, seg in enumerate(segments):
-            item = dict(seg)
-            item["dubbing"] = chunks[index] if index < len(chunks) else ""
-            updated_segments.append(item)
-        return updated_segments
-
     def _parse_requirements_plan(self, content: str):
         cleaned_content = self._clean_content(content)
-        parsed_json = json.loads(cleaned_content)
+        try:
+            parsed_json = json.loads(cleaned_content)
+        except Exception as e:
+            logger.error(f"Failed to parse JSON in _parse_requirements_plan: {e}\nContent: {cleaned_content}")
+            # 兜底：如果 JSON 解析失败，将原始内容视为 script，并自动分段
+            script = content.strip()
+            return {
+                "script": script,
+                "suggestions": ["自动分段处理"],
+                "effects": {"highlight": True, "blur": False},
+                "segments": []  # 稍后在外层通过 align_script_with_subtitles 补齐
+            }
+
         script = ""
         suggestions = []
         effects = {"highlight": True, "blur": False}
@@ -170,6 +131,125 @@ class LLMService:
             if seg["end"] - seg["start"] >= min_ms:
                 final_segments.append(seg)
         return final_segments
+
+    def _split_script_to_narration_segments(self, script: str, max_chars: int = 28) -> List[Dict[str, Any]]:
+        normalized = str(script or "").strip()
+        if not normalized:
+            return []
+        parts = re.split(r"(?<=[。！？!?；;])", normalized)
+        items: List[Dict[str, Any]] = []
+        buffer = ""
+        for raw in parts:
+            chunk = str(raw or "").strip()
+            if not chunk:
+                continue
+            if not buffer:
+                buffer = chunk
+                continue
+            if len(buffer) + len(chunk) <= max_chars:
+                buffer = f"{buffer}{chunk}"
+                continue
+            items.append({"text": buffer})
+            buffer = chunk
+        if buffer:
+            items.append({"text": buffer})
+        return items
+
+    def _parse_redub_outline(self, content: str):
+        cleaned_content = self._clean_content(content)
+        try:
+            parsed_json = json.loads(cleaned_content)
+        except Exception as e:
+            logger.error(f"Failed to parse JSON in _parse_redub_outline: {e}\nContent: {cleaned_content}")
+            # 兜底：如果 JSON 解析失败，将原始内容视为 script，并调用本地分段逻辑
+            script = content.strip()
+            return {
+                "script": script,
+                "suggestions": ["自动分段处理"],
+                "effects": {"highlight": True, "blur": False},
+                "narration_segments": self._split_script_to_narration_segments(script)
+            }
+
+        script = ""
+        suggestions = []
+        effects = {"highlight": True, "blur": False}
+        narration_segments: List[Dict[str, Any]] = []
+        if isinstance(parsed_json, dict):
+            if isinstance(parsed_json.get("script"), str):
+                script = parsed_json.get("script", "").strip()
+            if isinstance(parsed_json.get("suggestions"), list):
+                suggestions = [str(s).strip() for s in parsed_json.get("suggestions") if str(s).strip()]
+            if isinstance(parsed_json.get("effects"), dict):
+                effects["highlight"] = bool(parsed_json["effects"].get("highlight", effects["highlight"]))
+                effects["blur"] = bool(parsed_json["effects"].get("blur", effects["blur"]))
+            if isinstance(parsed_json.get("narration_segments"), list):
+                for item in parsed_json.get("narration_segments", []):
+                    if not isinstance(item, dict):
+                        continue
+                    text = str(item.get("text", "")).strip()
+                    if not text:
+                        continue
+                    narration_segments.append(
+                        {
+                            "text": text,
+                            "focus": str(item.get("focus", "")).strip(),
+                        }
+                    )
+        if not narration_segments and script:
+            narration_segments = self._split_script_to_narration_segments(script)
+        if not script and narration_segments:
+            script = "".join(str(item.get("text", "")).strip() for item in narration_segments).strip()
+        return {
+            "script": script,
+            "suggestions": suggestions,
+            "effects": effects,
+            "narration_segments": narration_segments,
+        }
+
+    def _parse_timed_redub_segments(self, content: str):
+        cleaned_content = self._clean_content(content)
+        try:
+            parsed_json = json.loads(cleaned_content)
+        except Exception as e:
+            logger.error(f"Failed to parse JSON in _parse_timed_redub_segments: {e}\nContent: {cleaned_content}")
+            return []
+
+        raw_segments = []
+        if isinstance(parsed_json, dict):
+            raw_segments = parsed_json.get("segments", [])
+        elif isinstance(parsed_json, list):
+            raw_segments = parsed_json
+
+        segments: List[Dict[str, Any]] = []
+        for seg in raw_segments or []:
+            if not isinstance(seg, dict):
+                continue
+            try:
+                start = int(seg.get("start", 0))
+                end = int(seg.get("end", 0))
+            except (ValueError, TypeError):
+                continue
+            if end <= start:
+                continue
+            dubbing = str(seg.get("dubbing", "")).strip()
+            if not dubbing:
+                continue
+            
+            # 注意：这里我们尽量保留 LLM 返回的所有字段，但核心字段必须存在
+            segments.append(
+                {
+                    "start": start,
+                    "end": end,
+                    "content": str(seg.get("content", "") or seg.get("text", "") or "").strip(),
+                    "dubbing": dubbing,
+                    "segment_index": int(seg.get("segment_index", len(segments)) or len(segments)),
+                    # 以下两个字段后端会按需回填，这里解析是为了兼容性
+                    "required_duration_ms": int(seg.get("required_duration_ms", 0) or 0),
+                    "tts_duration_ms": int(seg.get("tts_duration_ms", 0) or 0),
+                }
+            )
+        segments.sort(key=lambda item: (item["segment_index"], item["start"]))
+        return segments
 
     def align_script_with_subtitles(self, target_script: str, asr_subtitles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not self._ensure_client():
@@ -254,8 +334,109 @@ class LLMService:
             return self._parse_requirements_plan(content)
         except Exception as e:
             logger.error(f"LLM API Call Error: {e}")
-            import traceback
             traceback.print_exc()
             return {"script": "", "suggestions": [], "effects": {"highlight": True, "blur": False}}
+
+    def generate_redub_outline(self, requirements: str, subtitles: List[Dict[str, Any]]):
+        if not self._ensure_client():
+            return {"script": "", "suggestions": [], "effects": {"highlight": True, "blur": False}, "narration_segments": []}
+        system_prompt = """你是专业的视频导演与解说文案策划。现在只做第一轮：先根据用户需求和字幕，生成成片解说文案。
+
+# 重要：输出格式
+必须仅返回 JSON 对象。绝对不要包含 Markdown 标题、解释或任何 JSON 块之外的文字。
+{
+  "script": "完整成片文案",
+  "narration_segments": [
+    {"text": "第1段解说词", "focus": "本段画面重点"},
+    {"text": "第2段解说词", "focus": "本段画面重点"}
+  ],
+  "suggestions": ["建议1", "建议2"],
+  "effects": {"highlight": true, "blur": false}
+}
+
+# 文案要求
+1. script 必须是完整、自然、可朗读的成片文案。
+2. narration_segments 必须按最终成片顺序拆分 script，每段都要适合单独配音。
+3. narration_segments 的 text 要尽量完整自然，避免太长，一般控制在 1-2 句。
+4. 这一轮不要输出 start/end，不要估算时长。
+"""
+        user_content = f"""
+【需求】：
+{requirements}
+
+【字幕】：
+{json.dumps(subtitles, ensure_ascii=False)}
+"""
+        try:
+            response = self.client.chat.completions.create(
+                model=settings.LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.4,
+            )
+            content = response.choices[0].message.content
+            logger.info(f"LLM Redub Outline Raw Response: {content}")
+            return self._parse_redub_outline(content)
+        except Exception as e:
+            logger.error(f"LLM Redub Outline Error: {e}")
+            return {"script": "", "suggestions": [], "effects": {"highlight": True, "blur": False}, "narration_segments": []}
+
+    def generate_timed_redub_segments(self, requirements: str, subtitles: List[Dict[str, Any]], narration_segments: List[Dict[str, Any]]):
+        if not self._ensure_client():
+            return []
+        system_prompt = """你是视频剪辑助手。现在做第二轮：根据字幕、逐段配音文案以及每段真实配音时长，选择最终要截取的视频片段。
+
+# 输出
+必须仅返回 JSON 对象，不要包含解释或 Markdown：
+{
+  "segments": [
+    {
+      "segment_index": 0,
+      "start": 0,
+      "end": 3200,
+      "content": "该时间范围对应的原字幕内容摘要",
+      "dubbing": "本段配音文案原文"
+    }
+  ]
+}
+
+# 严格要求
+1. 每个 narration segment 必须对应一个最终视频片段，按顺序输出。
+2. start/end 必须来自原字幕时间线，不得编造。
+3. 每个片段的时长 end-start 必须 >= 当前 narration segment 中给出的 tts_duration_ms，最好额外留出 150-300ms 缓冲。
+4. 如单条字幕不够长，可以合并相邻字幕形成更长片段，但只能做“刚好够用”的最小合并，禁止动辄返回几十秒或几分钟的超长片段。
+5. dubbing 必须原样返回，不要改写。
+6. content 用对应时间范围内的原字幕内容概述即可。
+7. 所有 segments 必须时间顺序递增，尽量不要重叠。
+8. 不要重新估算或改写时长，不要返回 required_duration_ms 或 tts_duration_ms，后端会按 segment_index 回填真实测时结果。
+9. 如果某段配音只需要 3-8 秒，就只选择接近这个长度的画面区间，不要选择覆盖整局比赛的大段视频。
+"""
+        user_content = f"""
+【需求】：
+{requirements}
+
+【逐段配音与真实时长】：
+{json.dumps(narration_segments, ensure_ascii=False)}
+
+【原字幕】：
+{json.dumps(subtitles, ensure_ascii=False)}
+"""
+        try:
+            response = self.client.chat.completions.create(
+                model=settings.LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.2,
+            )
+            content = response.choices[0].message.content
+            logger.info(f"LLM Timed Redub Raw Response: {content}")
+            return self._parse_timed_redub_segments(content)
+        except Exception as e:
+            logger.error(f"LLM Timed Redub Error: {e}")
+            return []
 
 llm_service = LLMService()

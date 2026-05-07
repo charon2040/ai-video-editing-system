@@ -6,6 +6,21 @@ class VideoService:
     def __init__(self):
         pass
 
+    def extract_audio_track(self, input_media: str, output_audio: str) -> bool:
+        try:
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", input_media,
+                "-vn",
+                "-acodec", "mp3",
+                output_audio
+            ]
+            subprocess.run(cmd, check=True, capture_output=True)
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"FFmpeg Extract Audio Error: {e.stderr.decode('utf-8') if e.stderr else e}")
+            return False
+
     def cut_and_concat_video(self, input_video: str, output_video: str, segments: List[Dict[str, Any]]) -> bool:
         """
         根据 LLM 返回的时间段，使用 FFmpeg 剪辑拼接视频
@@ -91,92 +106,75 @@ class VideoService:
         红配音模式下不保留原视频原音，避免解说风格割裂。
         如果极少数片段缺少 dubbing，则生成静音轨，保持整条成片音频风格统一。
         同时生成一个包含所有 dubbing 的合并 ASS 字幕文件供后续压制。
+        直接使用单次 FFmpeg concat filter 输出整片，避免逐段先编码成 mp4 再二次合并。
         """
         try:
             temp_files = []
-            concat_list_path = os.path.join(os.path.dirname(output_video), "concat_list.txt")
             ass_subtitles = []
-            
-            # 累积当前的时间（用于生成连续的字幕时间轴）
+            cmd = ["ffmpeg", "-y"]
+            filter_parts = []
+            concat_streams = []
             current_time_ms = 0
-            
-            with open(concat_list_path, "w", encoding="utf-8") as f:
-                for i, seg in enumerate(segments):
-                    start_sec = seg["start"] / 1000.0
-                    end_sec = seg["end"] / 1000.0
-                    duration = end_sec - start_sec
-                    duration_ms = int(duration * 1000)
-                    
-                    temp_output = os.path.join(os.path.dirname(output_video), f"temp_seg_{i}.mp4")
+
+            for i, seg in enumerate(segments):
+                start_sec = seg["start"] / 1000.0
+                end_sec = seg["end"] / 1000.0
+                duration = max(end_sec - start_sec, 0.001)
+                duration_ms = int(round(duration * 1000))
+                tts_duration_ms = int(seg.get("tts_duration_ms", seg.get("required_duration_ms", duration_ms)) or duration_ms)
+                dubbing_text = str(seg.get("dubbing", "") or "").strip()
+
+                video_input_index = i * 2
+                audio_input_index = i * 2 + 1
+
+                cmd.extend(["-ss", str(start_sec), "-t", str(duration), "-i", input_video])
+
+                if dubbing_text:
+                    measured_audio = str(seg.get("tts_probe_audio_path", "") or "").strip()
                     temp_audio = os.path.join(os.path.dirname(output_video), f"temp_a_{i}.mp3")
-
-                    dubbing_text = seg.get("dubbing", "").strip()
-
-                    if dubbing_text:
+                    audio_input = measured_audio if measured_audio and os.path.exists(measured_audio) else temp_audio
+                    if audio_input == temp_audio:
                         if not tts_service_instance.generate_tts_only(dubbing_text, temp_audio, rate="+20%"):
                             return False, []
+                    if os.path.exists(audio_input):
+                        temp_files.append(audio_input)
+                    cmd.extend(["-i", audio_input])
+                    ass_subtitles.append({
+                        "start": current_time_ms,
+                        "end": current_time_ms + min(duration_ms, max(tts_duration_ms, 1)),
+                        "content": dubbing_text,
+                        "is_highlight": True
+                    })
+                else:
+                    cmd.extend(["-f", "lavfi", "-t", str(duration), "-i", "anullsrc=r=44100:cl=stereo"])
 
-                        cmd_merge = [
-                            "ffmpeg", "-y",
-                            "-ss", str(start_sec),
-                            "-t", str(duration),
-                            "-i", input_video,
-                            "-i", temp_audio,
-                            "-map", "0:v:0",
-                            "-map", "1:a:0",
-                            "-c:v", "libx264",
-                            "-preset", "veryfast",
-                            "-c:a", "aac",
-                            "-af", "apad",
-                            "-t", str(duration),
-                            temp_output
-                        ]
-                        subprocess.run(cmd_merge, check=True, capture_output=True)
+                filter_parts.append(
+                    f"[{video_input_index}:v]setpts=PTS-STARTPTS[v{i}]"
+                )
+                filter_parts.append(
+                    f"[{audio_input_index}:a]aresample=44100,asetpts=PTS-STARTPTS,apad,atrim=duration={duration:.3f}[a{i}]"
+                )
+                concat_streams.append(f"[v{i}][a{i}]")
+                current_time_ms += duration_ms
 
-                        ass_subtitles.append({
-                            "start": current_time_ms,
-                            "end": current_time_ms + duration_ms,
-                            "content": dubbing_text,
-                            "is_highlight": True
-                        })
-                    else:
-                        cmd_orig = [
-                            "ffmpeg", "-y",
-                            "-f", "lavfi",
-                            "-t", str(duration),
-                            "-i", "anullsrc=r=44100:cl=stereo",
-                            "-ss", str(start_sec),
-                            "-i", input_video,
-                            "-map", "1:v:0",
-                            "-map", "0:a:0",
-                            "-c:v", "libx264",
-                            "-preset", "veryfast",
-                            "-c:a", "aac",
-                            "-shortest",
-                            temp_output
-                        ]
-                        subprocess.run(cmd_orig, check=True, capture_output=True)
+            if not concat_streams:
+                return False, []
 
-                    temp_files.append(temp_output)
-                    if os.path.exists(temp_audio):
-                        temp_files.append(temp_audio)
-                    f.write(f"file '{temp_output}'\n")
+            filter_parts.append(
+                "".join(concat_streams) + f"concat=n={len(segments)}:v=1:a=1[vout][aout]"
+            )
 
-                    current_time_ms += duration_ms
-
-            concat_cmd = [
-                "ffmpeg", "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", concat_list_path,
+            cmd.extend([
+                "-filter_complex", ";".join(filter_parts),
+                "-map", "[vout]",
+                "-map", "[aout]",
                 "-c:v", "libx264",
                 "-preset", "veryfast",
                 "-c:a", "aac",
                 output_video
-            ]
-            subprocess.run(concat_cmd, check=True, capture_output=True)
+            ])
+            subprocess.run(cmd, check=True, capture_output=True)
 
-            os.remove(concat_list_path)
             for temp_file in temp_files:
                 if os.path.exists(temp_file):
                     try:

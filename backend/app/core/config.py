@@ -20,11 +20,16 @@ class Settings(BaseSettings):
     UPLOAD_FOLDER: str = os.path.join(BASE_DIR, 'uploads')
     OUTPUT_FOLDER: str = os.path.join(BASE_DIR, 'output')
     AUDIO_FOLDER: str = os.path.join(BASE_DIR, 'audio')
+    DATA_FOLDER: str = os.path.join(BASE_DIR, 'data')
+    DATABASE_PATH: str = os.path.join(DATA_FOLDER, 'studio.db')
+    FRONTEND_DIR: str = os.path.join(BASE_DIR, 'frontend')
+    PRO_EDITOR_DIR: str = os.path.join(BASE_DIR, 'JianshenVideoEditorWeb-main')
     
     # 确保目录存在
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     os.makedirs(AUDIO_FOLDER, exist_ok=True)
+    os.makedirs(DATA_FOLDER, exist_ok=True)
 
     # LLM 配置
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
