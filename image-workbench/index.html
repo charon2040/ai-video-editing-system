@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>图片工作台</title>
+  <style>
+    :root {
+      --bg: #ecfbf8;
+      --panel: #ffffff;
+      --panel-soft: #f6fffd;
+      --text: #142033;
+      --muted: #6b7688;
+      --line: #dfe7ef;
+      --accent: #0fb5a6;
+      --accent-2: #1f7ae0;
+      --danger: #dc3545;
+      --shadow: 0 14px 34px rgba(26, 58, 72, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      background:
+        linear-gradient(90deg, rgba(15, 181, 166, 0.05) 1px, transparent 1px),
+        linear-gradient(rgba(15, 181, 166, 0.05) 1px, transparent 1px),
+        radial-gradient(circle at 24% 10%, rgba(15, 181, 166, 0.18), transparent 32%),
+        var(--bg);
+      background-size: 80px 80px, 80px 80px, auto, auto;
+    }
+
+    .shell {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 28px 28px 42px;
+    }
+
+    .hero {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 22px 26px;
+      margin-bottom: 24px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(222, 232, 239, 0.9);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .endpoint {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: #f2f6f8;
+      color: #657184;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+    }
+
+    .status {
+      min-width: 120px;
+      text-align: center;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: #eefaf5;
+      color: #087d70;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+      gap: 22px;
+      align-items: start;
+    }
+
+    .stack {
+      display: grid;
+      gap: 18px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid rgba(222, 232, 239, 0.95);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 22px;
+    }
+
+    .card h2 {
+      margin: 0 0 16px;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #334155;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      padding: 11px 13px;
+      color: var(--text);
+      background: #ffffff;
+      font: inherit;
+      outline: none;
+    }
+
+    textarea {
+      min-height: 164px;
+      resize: vertical;
+      line-height: 1.55;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      border-color: rgba(15, 181, 166, 0.7);
+      box-shadow: 0 0 0 4px rgba(15, 181, 166, 0.12);
+    }
+
+    .inline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 14px;
+    }
+
+    .mode-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .mode-tabs button,
+    .actions button,
+    .small-btn {
+      border: 0;
+      border-radius: 11px;
+      min-height: 44px;
+      padding: 10px 15px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .mode-tabs button {
+      background: #f1f6f8;
+      color: #516071;
+    }
+
+    .mode-tabs button.active {
+      background: #e6fbf6;
+      color: #068276;
+      border: 1px solid rgba(15, 181, 166, 0.42);
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    .primary {
+      background: linear-gradient(135deg, var(--accent), #42d4c5);
+      color: #fff;
+      box-shadow: 0 12px 22px rgba(15, 181, 166, 0.26);
+    }
+
+    .secondary {
+      background: #f4f7fa;
+      color: #4b5b6f;
+    }
+
+    .danger {
+      background: #fff1f2;
+      color: var(--danger);
+    }
+
+    .hint {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .preview {
+      min-height: 360px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background:
+        linear-gradient(45deg, #f8fbfc 25%, transparent 25%),
+        linear-gradient(-45deg, #f8fbfc 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #f8fbfc 75%),
+        linear-gradient(-45deg, transparent 75%, #f8fbfc 75%),
+        #ffffff;
+      background-size: 28px 28px;
+      background-position: 0 0, 0 14px, 14px -14px, -14px 0;
+      border: 1px dashed #cfd9e5;
+      border-radius: 15px;
+    }
+
+    .preview.empty {
+      color: #8793a4;
+      text-align: center;
+      padding: 30px;
+    }
+
+    .preview img {
+      display: block;
+      max-width: 100%;
+      max-height: 72vh;
+      border-radius: 12px;
+    }
+
+    .log {
+      max-height: 260px;
+      overflow: auto;
+      margin: 16px 0 0;
+      padding: 14px;
+      border-radius: 12px;
+      background: #101828;
+      color: #e8eef8;
+      font: 13px/1.55 Consolas, "Courier New", monospace;
+      white-space: pre-wrap;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 920px) {
+      .shell {
+        padding: 18px;
+      }
+
+      .hero {
+        display: block;
+      }
+
+      .status {
+        display: inline-block;
+        margin-top: 16px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .inline {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .inline {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <h1>图片工作台</h1>
+        <p>使用本站 API Key 调用图片接口，支持文生图和参考图改图。</p>
+        <span class="endpoint">API 端点 /v1/images</span>
+      </div>
+      <div class="status" id="status">待生成</div>
+    </section>
+
+    <section class="grid">
+      <aside class="stack">
+        <div class="card">
+          <h2>选择密钥</h2>
+          <div class="field">
+            <label for="apiKey">API Key</label>
+            <input id="apiKey" type="password" autocomplete="off" placeholder="sk-...">
+            <p class="hint">密钥仅保存在当前浏览器本地，不会写入页面代码。</p>
+          </div>
+          <div class="actions">
+            <button class="secondary" id="saveKey" type="button">保存密钥</button>
+            <button class="danger" id="clearKey" type="button">清除密钥</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>模型</h2>
+          <div class="field">
+            <label for="model">图片模型</label>
+            <input id="model" value="gpt-image-2" placeholder="gpt-image-2">
+          </div>
+          <div class="field">
+            <label for="imageInput">参考图</label>
+            <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+            <p class="hint">上传参考图后会调用 /v1/images/edits，未上传则调用 /v1/images/generations。</p>
+          </div>
+        </div>
+      </aside>
+
+      <section class="stack">
+        <div class="card">
+          <div class="mode-tabs" aria-label="模式">
+            <button id="textMode" class="active" type="button">文生图</button>
+            <button id="editMode" type="button">图生图</button>
+          </div>
+
+          <div class="field">
+            <label for="prompt">提示词</label>
+            <textarea id="prompt" placeholder="例如：高级商业摄影风格的橙色宇航员猫咪贴纸，干净背景，细节丰富，柔和光影。"></textarea>
+          </div>
+
+          <div class="inline">
+            <div class="field">
+              <label for="size">尺寸</label>
+              <select id="size">
+                <option value="1024x1024">1K 方图 1024x1024</option>
+                <option value="2048x2048">2K 方图 2048x2048</option>
+                <option value="1792x1008">16:9 横图 1792x1008</option>
+                <option value="2048x1152">2K 横图 2048x1152</option>
+                <option value="1008x1792">9:16 竖图 1008x1792</option>
+                <option value="1152x2048">2K 竖图 1152x2048</option>
+                <option value="auto">自动</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="quality">质量</label>
+              <select id="quality">
+                <option value="auto">自动</option>
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="format">输出格式</label>
+              <select id="format">
+                <option value="png">PNG</option>
+                <option value="jpeg">JPEG</option>
+                <option value="webp">WEBP</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="compression">压缩</label>
+              <input id="compression" type="number" min="0" max="100" value="100">
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="primary" id="generate" type="button">开始生成</button>
+            <button class="secondary" id="download" type="button" disabled>下载图片</button>
+            <button class="secondary" id="clearResult" type="button">清空结果</button>
+          </div>
+          <pre class="log" id="log">等待输入参数。</pre>
+        </div>
+
+        <div class="card">
+          <h2>结果预览</h2>
+          <div class="preview empty" id="preview">生成结果会显示在这里</div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const els = {
+      apiKey: $("apiKey"),
+      model: $("model"),
+      imageInput: $("imageInput"),
+      textMode: $("textMode"),
+      editMode: $("editMode"),
+      prompt: $("prompt"),
+      size: $("size"),
+      quality: $("quality"),
+      format: $("format"),
+      compression: $("compression"),
+      generate: $("generate"),
+      download: $("download"),
+      clearResult: $("clearResult"),
+      saveKey: $("saveKey"),
+      clearKey: $("clearKey"),
+      log: $("log"),
+      preview: $("preview"),
+      status: $("status"),
+    };
+
+    let lastImageUrl = "";
+    let mode = "text";
+
+    function setStatus(text) {
+      els.status.textContent = text;
+    }
+
+    function setLog(value) {
+      els.log.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    }
+
+    function setMode(next) {
+      mode = next;
+      els.textMode.classList.toggle("active", next === "text");
+      els.editMode.classList.toggle("active", next === "edit");
+      if (next === "edit") {
+        els.imageInput.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    }
+
+    function payloadBase() {
+      const body = {
+        model: els.model.value.trim(),
+        prompt: els.prompt.value.trim(),
+        n: 1,
+        quality: els.quality.value,
+        output_format: els.format.value,
+      };
+      if (els.size.value !== "auto") body.size = els.size.value;
+      if (["jpeg", "webp"].includes(els.format.value)) {
+        body.output_compression = Number(els.compression.value || 100);
+      }
+      return body;
+    }
+
+    function extractImage(data) {
+      const items = Array.isArray(data && data.data) ? data.data : [];
+      for (const item of items) {
+        if (!item || typeof item !== "object") continue;
+        const b64 = item.b64_json || item.base64 || item.image_b64;
+        if (b64) return `data:image/${els.format.value};base64,${b64}`;
+        if (item.url) return item.url;
+      }
+      return "";
+    }
+
+    async function requestImage() {
+      const key = els.apiKey.value.trim();
+      const prompt = els.prompt.value.trim();
+      const model = els.model.value.trim();
+      if (!key) throw new Error("请先填写 API Key。");
+      if (!prompt) throw new Error("请填写提示词。");
+      if (!model) throw new Error("请填写模型名。");
+
+      const file = els.imageInput.files && els.imageInput.files[0];
+      const useEdit = mode === "edit" || !!file;
+      if (useEdit && !file) throw new Error("图生图模式需要上传参考图。");
+
+      if (useEdit) {
+        const form = new FormData();
+        const body = payloadBase();
+        Object.entries(body).forEach(([k, v]) => form.append(k, String(v)));
+        form.append("image", file, file.name);
+        return fetch("/v1/images/edits", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}` },
+          body: form,
+        });
+      }
+
+      return fetch("/v1/images/generations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify(payloadBase()),
+      });
+    }
+
+    async function generate() {
+      els.generate.disabled = true;
+      els.download.disabled = true;
+      setStatus("生成中");
+      setLog("正在请求图片接口...");
+      try {
+        const resp = await requestImage();
+        const text = await resp.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error(`响应不是 JSON：${text.slice(0, 600)}`);
+        }
+        setLog(data);
+        if (!resp.ok) {
+          const message = data && data.error && data.error.message ? data.error.message : text.slice(0, 600);
+          throw new Error(`HTTP ${resp.status}: ${message}`);
+        }
+        const image = extractImage(data);
+        if (!image) throw new Error("响应里没有找到 b64_json 或 url 图片数据。");
+        lastImageUrl = image;
+        els.preview.classList.remove("empty");
+        els.preview.innerHTML = `<img alt="生成结果" src="${image}">`;
+        els.download.disabled = false;
+        setStatus("已完成");
+      } catch (err) {
+        setStatus("失败");
+        setLog(err && err.message ? err.message : String(err));
+      } finally {
+        els.generate.disabled = false;
+      }
+    }
+
+    function downloadImage() {
+      if (!lastImageUrl) return;
+      const a = document.createElement("a");
+      a.href = lastImageUrl;
+      a.download = `image-${Date.now()}.${els.format.value}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function clearResult() {
+      lastImageUrl = "";
+      els.preview.classList.add("empty");
+      els.preview.textContent = "生成结果会显示在这里";
+      els.download.disabled = true;
+      setStatus("待生成");
+      setLog("等待输入参数。");
+    }
+
+    els.textMode.addEventListener("click", () => setMode("text"));
+    els.editMode.addEventListener("click", () => setMode("edit"));
+    els.generate.addEventListener("click", generate);
+    els.download.addEventListener("click", downloadImage);
+    els.clearResult.addEventListener("click", clearResult);
+    els.imageInput.addEventListener("change", () => {
+      if (els.imageInput.files && els.imageInput.files[0]) setMode("edit");
+    });
+    els.saveKey.addEventListener("click", () => {
+      localStorage.setItem("imageWorkbenchApiKey", els.apiKey.value.trim());
+      setLog("密钥已保存在当前浏览器。");
+    });
+    els.clearKey.addEventListener("click", () => {
+      localStorage.removeItem("imageWorkbenchApiKey");
+      els.apiKey.value = "";
+      setLog("本地密钥已清除。");
+    });
+
+    els.apiKey.value = localStorage.getItem("imageWorkbenchApiKey") || "";
+  </script>
+</body>
+</html>
