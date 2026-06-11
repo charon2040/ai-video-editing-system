@@ -1,0 +1,98 @@
+{
+  "id": "narration_clip",
+  "title": "AI 解说剪辑",
+  "description": "从长视频生成解说文案，人工确认后生成或使用配音，再按配音时长匹配画面并渲染。",
+  "version": "1",
+  "entry_node": "upload",
+  "terminal_node": "render",
+  "task_mode": "narration_clip",
+  "tags": ["draft", "voiceover", "render"],
+  "is_default": true,
+  "enabled": true,
+  "runtime": {
+    "phase_sequences": {
+      "draft": ["prepare_task", "asr_transcribe", "draft_phase"],
+      "finalize": ["prepare_task", "asr_transcribe", "voice_plan", "align_plan", "render_output"]
+    }
+  },
+  "nodes": [
+    {
+      "id": "upload",
+      "type": "upload_asset",
+      "title": "上传素材",
+      "outputs": [{"name": "source_video", "schema_ref": "SourceVideo"}]
+    },
+    {
+      "id": "asr",
+      "type": "asr_transcribe",
+      "title": "ASR 识别",
+      "inputs": [{"name": "source_video", "schema_ref": "SourceVideo"}],
+      "outputs": [{"name": "subtitles", "schema_ref": "SubtitleUnit[]"}]
+    },
+    {
+      "id": "knowledge",
+      "type": "knowledge_context",
+      "title": "知识库读取",
+      "outputs": [{"name": "project_context", "schema_ref": "KnowledgeContext"}]
+    },
+    {
+      "id": "draft",
+      "type": "llm_generate_beats",
+      "title": "LLM 生成文案",
+      "inputs": [
+        {"name": "subtitles", "schema_ref": "SubtitleUnit[]"},
+        {"name": "project_context", "schema_ref": "KnowledgeContext"}
+      ],
+      "outputs": [{"name": "draft_beats", "schema_ref": "DraftBeat[]"}]
+    },
+    {
+      "id": "review",
+      "type": "human_review",
+      "title": "人工确认",
+      "inputs": [{"name": "draft_beats", "schema_ref": "DraftBeat[]"}],
+      "outputs": [{"name": "reviewed_beats", "schema_ref": "DraftBeat[]"}]
+    },
+    {
+      "id": "voice",
+      "type": "voice_source",
+      "title": "配音",
+      "inputs": [{"name": "reviewed_beats", "schema_ref": "DraftBeat[]"}],
+      "outputs": [{"name": "voice_beats", "schema_ref": "VoiceBeat[]"}]
+    },
+    {
+      "id": "align",
+      "type": "beat_align",
+      "title": "文案匹配画面",
+      "inputs": [
+        {"name": "reviewed_beats", "schema_ref": "DraftBeat[]"},
+        {"name": "voice_beats", "schema_ref": "VoiceBeat[]"},
+        {"name": "subtitles", "schema_ref": "SubtitleUnit[]"}
+      ],
+      "outputs": [{"name": "segments", "schema_ref": "AlignedSegment[]"}]
+    },
+    {
+      "id": "render",
+      "type": "render_video",
+      "title": "渲染成片",
+      "inputs": [
+        {"name": "source_video", "schema_ref": "SourceVideo"},
+        {"name": "segments", "schema_ref": "AlignedSegment[]"},
+        {"name": "voice_beats", "schema_ref": "VoiceBeat[]"}
+      ],
+      "outputs": [{"name": "task_result", "schema_ref": "TaskResult"}]
+    }
+  ],
+  "edges": [
+    {"from_node": "upload", "from_port": "source_video", "to_node": "asr", "to_port": "source_video"},
+    {"from_node": "asr", "from_port": "subtitles", "to_node": "draft", "to_port": "subtitles"},
+    {"from_node": "knowledge", "from_port": "project_context", "to_node": "draft", "to_port": "project_context"},
+    {"from_node": "draft", "from_port": "draft_beats", "to_node": "review", "to_port": "draft_beats"},
+    {"from_node": "review", "from_port": "reviewed_beats", "to_node": "voice", "to_port": "reviewed_beats"},
+    {"from_node": "review", "from_port": "reviewed_beats", "to_node": "align", "to_port": "reviewed_beats"},
+    {"from_node": "voice", "from_port": "voice_beats", "to_node": "align", "to_port": "voice_beats"},
+    {"from_node": "asr", "from_port": "subtitles", "to_node": "align", "to_port": "subtitles"},
+    {"from_node": "upload", "from_port": "source_video", "to_node": "render", "to_port": "source_video"},
+    {"from_node": "align", "from_port": "segments", "to_node": "render", "to_port": "segments"},
+    {"from_node": "voice", "from_port": "voice_beats", "to_node": "render", "to_port": "voice_beats"}
+  ]
+}
