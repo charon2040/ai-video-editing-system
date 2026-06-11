@@ -1,0 +1,75 @@
+{
+  "id": "script_match_clip",
+  "title": "定稿文案匹配",
+  "description": "用户提供定稿文案，系统拆分 beat 后按原字幕匹配原声或画面并渲染。",
+  "version": "1",
+  "entry_node": "upload",
+  "terminal_node": "render",
+  "task_mode": "script_match_clip",
+  "tags": ["script", "align", "render"],
+  "is_default": false,
+  "enabled": true,
+  "runtime": {
+    "phase_sequences": {
+      "draft": ["prepare_task", "asr_transcribe", "script_to_beats"],
+      "finalize": ["prepare_task", "asr_transcribe", "voice_plan", "align_plan", "render_output"]
+    }
+  },
+  "nodes": [
+    {
+      "id": "upload",
+      "type": "upload_asset",
+      "title": "上传素材",
+      "outputs": [{"name": "source_video", "schema_ref": "SourceVideo"}]
+    },
+    {
+      "id": "asr",
+      "type": "asr_transcribe",
+      "title": "ASR 识别",
+      "inputs": [{"name": "source_video", "schema_ref": "SourceVideo"}],
+      "outputs": [{"name": "subtitles", "schema_ref": "SubtitleUnit[]"}]
+    },
+    {
+      "id": "script",
+      "type": "script_to_beats",
+      "title": "文案拆分",
+      "inputs": [{"name": "target_script", "schema_ref": "ScriptText"}],
+      "outputs": [{"name": "draft_beats", "schema_ref": "DraftBeat[]"}]
+    },
+    {
+      "id": "review",
+      "type": "human_review",
+      "title": "人工确认",
+      "inputs": [{"name": "draft_beats", "schema_ref": "DraftBeat[]"}],
+      "outputs": [{"name": "reviewed_beats", "schema_ref": "DraftBeat[]"}]
+    },
+    {
+      "id": "align",
+      "type": "beat_align",
+      "title": "文案匹配素材",
+      "inputs": [
+        {"name": "reviewed_beats", "schema_ref": "DraftBeat[]"},
+        {"name": "subtitles", "schema_ref": "SubtitleUnit[]"}
+      ],
+      "outputs": [{"name": "segments", "schema_ref": "AlignedSegment[]"}]
+    },
+    {
+      "id": "render",
+      "type": "render_video",
+      "title": "渲染成片",
+      "inputs": [
+        {"name": "source_video", "schema_ref": "SourceVideo"},
+        {"name": "segments", "schema_ref": "AlignedSegment[]"}
+      ],
+      "outputs": [{"name": "task_result", "schema_ref": "TaskResult"}]
+    }
+  ],
+  "edges": [
+    {"from_node": "upload", "from_port": "source_video", "to_node": "asr", "to_port": "source_video"},
+    {"from_node": "script", "from_port": "draft_beats", "to_node": "review", "to_port": "draft_beats"},
+    {"from_node": "review", "from_port": "reviewed_beats", "to_node": "align", "to_port": "reviewed_beats"},
+    {"from_node": "asr", "from_port": "subtitles", "to_node": "align", "to_port": "subtitles"},
+    {"from_node": "upload", "from_port": "source_video", "to_node": "render", "to_port": "source_video"},
+    {"from_node": "align", "from_port": "segments", "to_node": "render", "to_port": "segments"}
+  ]
+}
