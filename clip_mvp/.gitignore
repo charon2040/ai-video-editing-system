@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.py[cod]
+*.log
+uploads/
+audio/
+outputs/
+data/
+frontend/node_modules/
+frontend/dist/
