@@ -19,9 +19,17 @@ Thumbs.db
 .DS_Store
 
 # Runtime / generated folders
-audio/
-output/
-uploads/
+/audio/
+/output/
+/uploads/
+clip_mvp/data/
+clip_mvp/uploads/
+clip_mvp/audio/
+clip_mvp/outputs/
+clip_mvp/frontend/node_modules/
+clip_mvp/frontend/dist/
+third_party/
+备用/
 
 # Generated media and timeline files
 *.mp4
@@ -35,6 +43,7 @@ uploads/
 # Logs / temp
 *.log
 *.tmp
+*.zip
 
 # Local test artifacts
 backend/test.mp3
@@ -49,12 +58,11 @@ backend/test.vtt
 frontend/README.md
 
 # Non-core local helper / duplicate entry files
-allow_flask_access.bat
-check_firewall.bat
-app copy.py
-app.py
-main.py
-mian1.py
-run.py
-templates/
-README.md
+/allow_flask_access.bat
+/check_firewall.bat
+/app copy.py
+/app.py
+/main.py
+/mian1.py
+/run.py
+/templates/
